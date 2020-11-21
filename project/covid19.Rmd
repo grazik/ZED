@@ -1,0 +1,48 @@
+---
+title: "COVID19 project"
+author: "Michal Graziowski"
+date: "`r format(Sys.time(), '%d.%m.%Y')`r"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+```
+
+```{r load data}
+original_data <- read_excel("./wuhan_blood_sample_data_Jan_Feb_2020.xlsx")
+```
+
+```{r tranform data}
+# merged cells have empty value, thus Patients ids are mostly NA.
+
+df <- original_data %>% 
+  rename_with(function(name) toupper(str_replace_all(name, " ", "_"))) %>%
+  tidyr::fill(PATIENT_ID) %>%
+  group_by(PATIENT_ID) %T>%
+  {options(warn=-1)} %>% # some encoding issues
+  summarise(across(!RE_DATE, mean, na.rm=TRUE), .groups = "keep")  %T>%
+  {options(warn=0)} %>%
+  mutate(DAYS_COUNT =  as.numeric(as.Date(DISCHARGE_TIME) - as.Date(ADMISSION_TIME)), .after="PATIENT_ID") %>%
+  select(!c(DISCHARGE_TIME, ADMISSION_TIME))
+
+head(df)
+```
+
+# Executive summary
+Bla Bla Bla
+
+# Used libraries
+* `readxl`
+* `dplyr`
+* `tidyr`
+
+# Dataset description
