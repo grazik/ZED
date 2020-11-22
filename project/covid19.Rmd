@@ -15,13 +15,15 @@ library(readxl)
 library(dplyr)
 library(tidyr)
 library(stringr)
+library(ggplot2)
+library(plotly)
 ```
 
-```{r load data}
+```{r load data, include=FALSE}
 original_data <- read_excel("./wuhan_blood_sample_data_Jan_Feb_2020.xlsx")
 ```
 
-```{r tranform data}
+```{r tranform data, include=FALSE}
 # merged cells have empty value, thus Patients ids are mostly NA.
 
 df <- original_data %>% 
@@ -31,8 +33,10 @@ df <- original_data %>%
   {options(warn=-1)} %>% # some encoding issues
   summarise(across(!RE_DATE, mean, na.rm=TRUE), .groups = "keep")  %T>%
   {options(warn=0)} %>%
+  mutate(GENDER = if_else(GENDER == 1, "MALE", "FEMALE")) %>%
+  mutate(HAS_SURVIVED = if_else(OUTCOME == 1, FALSE, TRUE), .after="OUTCOME") %>%
   mutate(DAYS_COUNT =  as.numeric(as.Date(DISCHARGE_TIME) - as.Date(ADMISSION_TIME)), .after="PATIENT_ID") %>%
-  select(!c(DISCHARGE_TIME, ADMISSION_TIME))
+  select(!c(DISCHARGE_TIME, ADMISSION_TIME, OUTCOME))
 
 head(df)
 ```
@@ -46,3 +50,72 @@ Bla Bla Bla
 * `tidyr`
 
 # Dataset description
+
+# Statistics
+## Overall fatality
+```{r overall fatality, echo=FALSE}
+dfByOutcome <- df %>%
+  group_by(HAS_SURVIVED) %>%
+  tally(name="COUNT")
+
+
+graph <- ggplot(
+  dfByOutcome,
+  aes(x=HAS_SURVIVED, y=COUNT, fill=HAS_SURVIVED)
+) +
+  geom_bar(stat="identity",
+  position="identity")
+
+ggplotly(graph)
+```
+
+## Gender based
+```{r division by gender, echo=FALSE}
+dfByGender <- df %>%
+  group_by(GENDER) %>%
+  tally(name="COUNT")
+
+
+graph <- ggplot(
+  dfByGender,
+  aes(x=GENDER, y=COUNT, fill=GENDER)
+) +
+  geom_bar(stat="identity",
+  position="identity")
+
+ggplotly(graph)
+```
+
+```{r outcomes by gender, echo=FALSE, warning=FALSE}
+fatalityByGender <- df %>%
+  group_by(GENDER, HAS_SURVIVED) %>%
+  tally(name="COUNT")
+
+graph <- ggplot(fatalityByGender, aes(x=HAS_SURVIVED, y=COUNT, fill=HAS_SURVIVED))+
+  geom_bar(stat='identity')+
+  facet_wrap(~GENDER)
+
+ggplotly(graph)
+```
+
+## By Age
+```{r histogram by age, echo=FALSE}
+graph <-ggplot(df, aes(x=AGE, fill=GENDER)) + 
+  geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity")
+
+ggplotly(graph)
+```
+
+```{r histogram of those who didnt survive by age, echo=FALSE, warning=FALSE}
+graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE)) + 
+  geom_histogram(color="black", binwidth=5, position="identity")
+
+ggplotly(graph)
+```
+
+```{r histogram of those who didnt survive by age and gender, echo=FALSE, warning=FALSE}
+graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE, fill=GENDER)) + 
+  geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity")
+
+ggplotly(graph)
+```
