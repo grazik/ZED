@@ -17,6 +17,8 @@ library(tidyr)
 library(stringr)
 library(ggplot2)
 library(plotly)
+library(corrplot)
+library(caret)
 ```
 
 ```{r load data, include=FALSE}
@@ -33,12 +35,19 @@ df <- original_data %>%
   {options(warn=-1)} %>% # some encoding issues
   summarise(across(!RE_DATE, mean, na.rm=TRUE), .groups = "keep")  %T>%
   {options(warn=0)} %>%
-  mutate(GENDER = if_else(GENDER == 1, "MALE", "FEMALE")) %>%
+  ungroup() %>%
+  mutate(GENDER = if_else(GENDER == 1, "MALE", "FEMALE"))
+
+df$"2019-NCOV_NUCLEIC_ACID_DETECTION" <- df$"2019-NCOV_NUCLEIC_ACID_DETECTION" %>%
+  replace_na(1)
+
+df <- df %>%
   mutate(HAS_SURVIVED = if_else(OUTCOME == 1, FALSE, TRUE), .after="OUTCOME") %>%
   mutate(DAYS_COUNT =  as.numeric(as.Date(DISCHARGE_TIME) - as.Date(ADMISSION_TIME)), .after="PATIENT_ID") %>%
-  select(!c(DISCHARGE_TIME, ADMISSION_TIME, OUTCOME))
+  select(!c(ADMISSION_TIME, OUTCOME)) %>%
+  mutate_all(~if_else(is.na(.), median(., na.rm = TRUE), .))
 
-head(df)
+names(df) <- make.names(names(df),unique = TRUE)
 ```
 
 # Executive summary
@@ -48,6 +57,11 @@ Bla Bla Bla
 * `readxl`
 * `dplyr`
 * `tidyr`
+* `stringr`
+* `ggplot2`
+* `plotly`
+* `corrplot`
+* `caret`
 
 # Dataset description
 
@@ -64,7 +78,8 @@ graph <- ggplot(
   aes(x=HAS_SURVIVED, y=COUNT, fill=HAS_SURVIVED)
 ) +
   geom_bar(stat="identity",
-  position="identity")
+  position="identity") +
+  theme_classic()
 
 ggplotly(graph)
 ```
@@ -81,7 +96,8 @@ graph <- ggplot(
   aes(x=GENDER, y=COUNT, fill=GENDER)
 ) +
   geom_bar(stat="identity",
-  position="identity")
+  position="identity") +
+  theme_classic()
 
 ggplotly(graph)
 ```
@@ -93,7 +109,8 @@ fatalityByGender <- df %>%
 
 graph <- ggplot(fatalityByGender, aes(x=HAS_SURVIVED, y=COUNT, fill=HAS_SURVIVED))+
   geom_bar(stat='identity')+
-  facet_wrap(~GENDER)
+  facet_wrap(~GENDER) +
+  theme_classic()
 
 ggplotly(graph)
 ```
@@ -101,14 +118,16 @@ ggplotly(graph)
 ## By Age
 ```{r histogram by age, echo=FALSE}
 graph <-ggplot(df, aes(x=AGE, fill=GENDER)) + 
-  geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity")
+  geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity") +
+  theme_classic()
 
 ggplotly(graph)
 ```
 
 ```{r histogram of those who didnt survive by age, echo=FALSE, warning=FALSE}
 graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE)) + 
-  geom_histogram(color="black", binwidth=5, position="identity")
+  geom_histogram(color="black", binwidth=5, position="identity")+
+  theme_classic()
 
 ggplotly(graph)
 ```
@@ -118,4 +137,127 @@ graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE, fill=GENDER)) +
   geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity")
 
 ggplotly(graph)
+```
+
+## By days in the hospital
+```{r histogram by days count, echo=FALSE}
+graph <-ggplot(df, aes(x=DAYS_COUNT, fill=GENDER)) + 
+  geom_histogram(color="black", binwidth=3, alpha=0.5, position="identity") +
+  theme_classic()
+
+ggplotly(graph)
+```
+
+```{r propability of death by the days count, echo=FALSE}
+maxDaysNumber <- max(df$DAYS_COUNT)
+binWidth = 3
+buckets <- seq(0, maxDaysNumber, binWidth)
+
+allPatientsInDaysBin <- df %>%
+  select(c(PATIENT_ID, DAYS_COUNT)) %>%
+  mutate(DAYS_BIN = DAYS_COUNT - DAYS_COUNT %% binWidth) %>%
+  group_by(DAYS_BIN) %>%
+  count(DAYS_BIN, name = "ALL_COUNT")
+
+deadPatientsInDaysBin <- df %>%
+  filter(HAS_SURVIVED == FALSE) %>%
+  select(c(PATIENT_ID, DAYS_COUNT)) %>%
+  mutate(DAYS_BIN = DAYS_COUNT - DAYS_COUNT %% binWidth) %>%
+  group_by(DAYS_BIN) %>%
+  count(DAYS_BIN, name = "DEAD_COUNT")
+
+probabilityOfDeath <- left_join(allPatientsInDaysBin, deadPatientsInDaysBin, by = "DAYS_BIN") %>%
+  mutate(DEAD_COUNT = replace_na(DEAD_COUNT, 0)) %>%
+  mutate(PROPABILITY = DEAD_COUNT / ALL_COUNT)
+
+
+graph <-ggplot(probabilityOfDeath, aes(x=DAYS_BIN, y=PROPABILITY)) +
+  geom_line() +
+  theme_classic()
+
+ggplotly(graph)
+  
+```
+
+# Correlation between selected attributes
+``` {r correlation between selected attributes, echo=FALSE}
+dataForCorelation <- df %>%
+  mutate(GENDER = if_else(GENDER == "MALE", 1, 0)) %>%
+  mutate(LYMPHOCYTES = LYMPHOCYTE_COUNT) %>%
+  mutate(CRP = df$"HIGH_SENSITIVITY_C.REACTIVE_PROTEIN") %>%
+  mutate(LDH = LACTATE_DEHYDROGENASE)  %>%
+  mutate(NCOV_NUCLEIC = df$"X2019.NCOV_NUCLEIC_ACID_DETECTION") %>%
+  select(c(HAS_SURVIVED, GENDER, DAYS_COUNT, LDH, LYMPHOCYTES, CRP, NCOV_NUCLEIC)) %>%
+  mutate_all(~if_else(is.na(.), median(., na.rm = TRUE), .))
+
+dataForCorelation <- cor(dataForCorelation)[2:7,1, drop=FALSE]
+  
+corrplot(dataForCorelation,
+         method = "circle",
+         tl.col = "black",
+         insig = "blank",
+         title = "Correlation between death and selected features",
+         mar = c(0,0,1,0),
+         number.cex=2,
+        number.font = 1)
+```
+
+# Amount of Deaths/Survivors over time
+``` {r statistics over time, echo=FALSE}
+data <- df %>%
+  arrange(DISCHARGE_TIME) %>%
+  select(DISCHARGE_TIME, HAS_SURVIVED)
+  
+
+graph <- ggplot(data, aes(DISCHARGE_TIME)) +
+  xlab("date") +
+  ylab("sum of people") +
+  geom_line(aes(y=cumsum(HAS_SURVIVED), color=TRUE)) +
+  geom_line(aes(y=cumsum(!HAS_SURVIVED), color=FALSE))
+
+graph$labels$colour <- "Has Survived"
+
+ggplotly(graph)
+
+```
+
+# Classification
+``` {r classifaction, echo=FALSE}
+# set.seed(32)
+# 
+# data <- df %>%
+#   mutate(HAS_SURVIVED = if_else(HAS_SURVIVED, "ALIVE", "DEAD")) %>%
+#   mutate(HAS_SURVIVED = as.factor(HAS_SURVIVED)) %>%
+#   select(-PATIENT_ID)
+# 
+# inTraining <- 
+#     createDataPartition(
+#         # atrybut do stratyfikacji
+#         y = df$HAS_SURVIVED,
+#         # procent w zbiorze uczącym
+#         p = .75,
+#         # chcemy indeksy a nie listę
+#         list = FALSE)
+# 
+# training <- data[ inTraining,]
+# testing  <- data[-inTraining,]
+# 
+# rf_grid <- expand.grid(mtry = 2:20)
+# 
+# control <- trainControl(
+#     method='repeatedcv', 
+#     number=10, 
+#     repeats=5)
+# 
+# fit <- train(
+#     HAS_SURVIVED ~ .,
+#     data=training, 
+#     method='rf', 
+#     trControl=control,
+#     tuneGrid=rf_grid,
+#     ntree = 10)
+# 
+# rfClasses <- predict(fit, newdata = testing)
+# confusionMatrix(rfClasses, testing$HAS_SURVIVED)
+# print(varImp(fit, scale=FALSE))
 ```
