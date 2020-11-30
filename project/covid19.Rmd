@@ -50,8 +50,22 @@ df <- df %>%
 names(df) <- make.names(names(df),unique = TRUE)
 ```
 
+# Introduction 
+The following report focus on analyzing blood samples taken from patients in Wuhan who were diagnosed with COVID19. Data have been taken between 10.01.2020 and 18.02.2020.
+
+The main purpose of this report is to find out which blood component can be used to predict if the patient is going to die or to recover.
+
 # Executive summary
-Bla Bla Bla
+Performed  analyzes show that men are more likely to not survive COVID-19 infection. More then every second men dies, at least in the analyzed dataset.
+The situation is not so dire for females, research shows that “only” every third doesn’t survive the infection.
+
+Another important factor is age, in the report it is shown that the higher is the patient age the higher is the probability of not surviving this illness.
+
+The report also focus on the impact of hospitalization time over the fatality, it shows that the longer patient stays in the hospital the higher is the chance of surviving.
+However, after 20 days in the hospital probability rises again. 
+
+The analyze was also put on the biomarkers suggested in the article [Tan *et al* article](https://www.nature.com/articles/s42256-020-0180-7), that means that we checked the correlation between LDH, CRP,  lymphocytes count and fatality. This correlation shows that the lesser is the value of LDH and CRP then the higher is probability of dying. However, High number of Lymphocytes may suggest a change of recovering.
+At the end, there is a classification model that takes all of the parameters in to the consideration and it shows that the [Tan *et al* article](https://www.nature.com/articles/s42256-020-0180-7) is right and LDH, CRP, lymphocytes count have an impact on fatality.
 
 # Used libraries
 * `readxl`
@@ -64,9 +78,22 @@ Bla Bla Bla
 * `caret`
 
 # Dataset description
+As it was mentioned in the Introduction, the report analyzes data of patients from Wuhan hospital.
+The data consists of record of `r nrow(df)` patients
+(`r nrow(df %>% filter(GENDER == 'MALE'))`M vs `r nrow(df %>% filter(GENDER == 'FEMALE'))`F).
+
+Each patient is described by multiple rows. Each row contains some generic properties, such as `Age`, `Gender`, `Admission Time` and so on. Additionally, each row represents another blood test, thus result of it populates appropriate columns. It may happened that a patient didn’t have a test for some properties and these values are missing.
+
+To condensate each patient to one row, researched decided to calculate mean (with ignore to missing values) between corresponding results.
+
+To overcome issue with missing values, researcher decided to replace missing values with a median of the corresponding values. The only exception was made for column regarding ` NCOV_NUCLEIC_ACID_DETECTION` where missing values were replaced with `0`.
+
+The following table contains detailed results of the dataset.
+`r knitr::kable(summary(df %>% select(-PATIENT_ID)))`
 
 # Statistics
 ## Overall fatality
+The following graph represents an overall comparison between people who has survived and those who weren't so lucky.
 ```{r overall fatality, echo=FALSE}
 dfByOutcome <- df %>%
   group_by(HAS_SURVIVED) %>%
@@ -85,6 +112,7 @@ ggplotly(graph)
 ```
 
 ## Gender based
+The following graph represents an overall comparison between men and women.
 ```{r division by gender, echo=FALSE}
 dfByGender <- df %>%
   group_by(GENDER) %>%
@@ -102,6 +130,7 @@ graph <- ggplot(
 ggplotly(graph)
 ```
 
+The chart below shows the gender mortality.
 ```{r outcomes by gender, echo=FALSE, warning=FALSE}
 fatalityByGender <- df %>%
   group_by(GENDER, HAS_SURVIVED) %>%
@@ -116,6 +145,7 @@ ggplotly(graph)
 ```
 
 ## By Age
+The following chart presents age histogram, divided by gender.
 ```{r histogram by age, echo=FALSE}
 graph <-ggplot(df, aes(x=AGE, fill=GENDER)) + 
   geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity") +
@@ -124,6 +154,7 @@ graph <-ggplot(df, aes(x=AGE, fill=GENDER)) +
 ggplotly(graph)
 ```
 
+The following chart shows mortality by age.
 ```{r histogram of those who didnt survive by age, echo=FALSE, warning=FALSE}
 graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE)) + 
   geom_histogram(color="black", binwidth=5, position="identity")+
@@ -132,6 +163,7 @@ graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE)) +
 ggplotly(graph)
 ```
 
+The following chart shows mortality by age and gender.
 ```{r histogram of those who didnt survive by age and gender, echo=FALSE, warning=FALSE}
 graph <-ggplot(df %>% filter(HAS_SURVIVED == FALSE), aes(x=AGE, fill=GENDER)) + 
   geom_histogram(color="black", binwidth=5, alpha=0.5, position="identity")
@@ -140,14 +172,16 @@ ggplotly(graph)
 ```
 
 ## By days in the hospital
+The following chart presents amount of days spent in the hospital, with respect to a gender.
 ```{r histogram by days count, echo=FALSE}
 graph <-ggplot(df, aes(x=DAYS_COUNT, fill=GENDER)) + 
-  geom_histogram(color="black", binwidth=3, alpha=0.5, position="identity") +
+  geom_density(alpha=0.5) +
   theme_classic()
 
 ggplotly(graph)
 ```
 
+The following chart represents how probability of death changes with a respect to the amount of days spent in the hospital. 
 ```{r propability of death by the days count, echo=FALSE}
 maxDaysNumber <- max(df$DAYS_COUNT)
 binWidth = 3
@@ -193,16 +227,13 @@ dataForCorelation <- df %>%
 dataForCorelation <- cor(dataForCorelation)[2:7,1, drop=FALSE]
   
 corrplot(dataForCorelation,
-         method = "circle",
-         tl.col = "black",
-         insig = "blank",
-         title = "Correlation between death and selected features",
-         mar = c(0,0,1,0),
-         number.cex=2,
-        number.font = 1)
+         method = "number",
+         cl.pos="r",
+         number.cex=1)
 ```
 
 # Amount of Deaths/Survivors over time
+The following graph shows how the number of survivors/deaths changed over time.
 ``` {r statistics over time, echo=FALSE}
 data <- df %>%
   arrange(DISCHARGE_TIME) %>%
@@ -222,42 +253,43 @@ ggplotly(graph)
 ```
 
 # Classification
+The following chapter focus on the classification model. Random Forest was used.
 ``` {r classifaction, echo=FALSE}
-# set.seed(32)
-# 
-# data <- df %>%
-#   mutate(HAS_SURVIVED = if_else(HAS_SURVIVED, "ALIVE", "DEAD")) %>%
-#   mutate(HAS_SURVIVED = as.factor(HAS_SURVIVED)) %>%
-#   select(-PATIENT_ID)
-# 
-# inTraining <- 
-#     createDataPartition(
-#         # atrybut do stratyfikacji
-#         y = df$HAS_SURVIVED,
-#         # procent w zbiorze uczącym
-#         p = .75,
-#         # chcemy indeksy a nie listę
-#         list = FALSE)
-# 
-# training <- data[ inTraining,]
-# testing  <- data[-inTraining,]
-# 
-# rf_grid <- expand.grid(mtry = 2:20)
-# 
-# control <- trainControl(
-#     method='repeatedcv', 
-#     number=10, 
-#     repeats=5)
-# 
-# fit <- train(
-#     HAS_SURVIVED ~ .,
-#     data=training, 
-#     method='rf', 
-#     trControl=control,
-#     tuneGrid=rf_grid,
-#     ntree = 10)
-# 
-# rfClasses <- predict(fit, newdata = testing)
-# confusionMatrix(rfClasses, testing$HAS_SURVIVED)
-# print(varImp(fit, scale=FALSE))
+set.seed(32)
+
+data <- df %>%
+  mutate(HAS_SURVIVED = if_else(HAS_SURVIVED, "ALIVE", "DEAD")) %>%
+  mutate(HAS_SURVIVED = as.factor(HAS_SURVIVED)) %>%
+  select(-PATIENT_ID)
+
+inTraining <-
+    createDataPartition(
+        # atrybut do stratyfikacji
+        y = df$HAS_SURVIVED,
+        # procent w zbiorze uczącym
+        p = .75,
+        # chcemy indeksy a nie listę
+        list = FALSE)
+
+training <- data[ inTraining,]
+testing  <- data[-inTraining,]
+
+rf_grid <- expand.grid(mtry = 1:30)
+
+control <- trainControl(
+    method='repeatedcv',
+    number=10,
+    repeats=5)
+
+fit <- train(
+    HAS_SURVIVED ~ .,
+    data=training,
+    method='rf',
+    trControl=control,
+    tuneGrid=rf_grid,
+    ntree = 20)
+
+rfClasses <- predict(fit, newdata = testing)
+confusionMatrix(rfClasses, testing$HAS_SURVIVED)
+print(varImp(fit, scale=FALSE))
 ```
